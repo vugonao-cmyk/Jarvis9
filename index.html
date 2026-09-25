@@ -52,7 +52,18 @@
   @keyframes pulse{0%,100%{box-shadow:0 0 18px rgba(56,214,255,.4)}50%{box-shadow:0 0 42px rgba(56,214,255,.9)}}
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes speak{from{box-shadow:0 0 14px rgba(56,214,255,.4)}to{box-shadow:0 0 34px rgba(122,240,255,.85);transform:scale(1.04)}}
-  #status{font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);min-height:16px}
+  #orb.standby{animation:breathe 3s ease-in-out infinite}
+  #orb.standby::after{animation:spin 14s linear infinite;border-color:rgba(122,240,255,.35)}
+  #orb.awake{animation:pulse .7s infinite;border-color:#fff}
+  @keyframes breathe{0%,100%{box-shadow:0 0 12px rgba(56,214,255,.25)}50%{box-shadow:0 0 30px rgba(56,214,255,.6)}}
+  #status{font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);min-height:16px;text-align:center}
+  #btnStandby{background:none;border:1px solid var(--line);color:var(--muted);border-radius:20px;
+    padding:6px 14px;font-size:12px;letter-spacing:1px;cursor:pointer}
+  #btnStandby.on{border-color:var(--glow);color:var(--glow);box-shadow:0 0 12px rgba(56,214,255,.3)}
+  .srcs{margin-top:8px;font-size:12px;color:var(--muted);white-space:normal}
+  .srcs a{color:var(--glow);text-decoration:none;margin-right:10px;display:inline-block}
+  .openbtn{display:inline-block;margin-top:8px;padding:7px 12px;border-radius:10px;background:var(--glow);
+    color:#02121d;font-weight:700;font-size:13px;text-decoration:none}
   form#composer{display:flex;gap:8px;padding:10px 16px 14px}
   #input{flex:1;background:var(--panel);border:1px solid var(--line);color:var(--text);
     border-radius:12px;padding:12px 14px;font-size:16px;outline:none}
@@ -95,6 +106,7 @@
       <svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
     </button>
     <div id="status">Toque para falar</div>
+    <button id="btnStandby" type="button">⏻ Modo prontidão: desligado</button>
   </div>
 
   <form id="composer" autocomplete="off">
@@ -129,6 +141,8 @@
       <label for="sVoice">Voz</label>
       <select id="sVoice"></select>
 
+      <div class="row"><input type="checkbox" id="sBusca"><span>Pesquisar na internet (Google) quando precisar</span></div>
+      <div class="hint">Só funciona com o Gemini. Se der erro de cota, desligue.</div>
       <div class="row"><input type="checkbox" id="sVoz"><span>Responder em voz alta</span></div>
       <div class="row"><input type="checkbox" id="sCont"><span>Modo conversa (volta a ouvir depois de responder)</span></div>
 
@@ -158,12 +172,32 @@ Regras de comportamento:
 - Não use markdown, listas com símbolos, emojis nem links; escreva frases naturais para serem faladas.
 - Seja proativo: quando fizer sentido, sugira o próximo passo ou antecipe uma necessidade.
 - Pode fazer comentários espirituosos e levemente irônicos, mas sempre com respeito e lealdade.
-- Se não souber algo ou não puder fazer algo (por exemplo, controlar aparelhos, acessar a internet em tempo real ou ver a agenda), diga isso com honestidade e ofereça uma alternativa. Nunca invente fatos.
+- Se não souber algo ou não puder fazer algo, diga isso com honestidade e ofereça uma alternativa. Nunca invente fatos.
 - Você lembra do que foi dito nesta conversa e usa isso para dar continuidade.
 
 Contexto atual: hoje é {DATA}.`;
 
-const DEFAULT_MODELS = { gemini: 'gemini-flash-latest', groq: 'llama-3.3-70b-versatile' };
+/* Instruções de ferramentas: sempre enviadas, mesmo com prompt personalizado */
+function toolsPrompt(searchOn){
+  return `
+
+CAPACIDADES DO SISTEMA (siga sempre):
+${searchOn
+  ? '- Você TEM acesso à pesquisa do Google. Use-a para qualquer informação atual ou que você não saiba com certeza: notícias, clima, preços, cotações, resultados de jogos, horários, lançamentos. Nunca diga que não tem acesso à internet.'
+  : '- A pesquisa na internet está desligada; se precisarem de informação atual, avise que pode ser desatualizada e sugira ligar a pesquisa nas configurações.'}
+- Você pode ABRIR sites para o usuário. Quando ele pedir para abrir, mostrar, tocar, assistir ou pesquisar algo visualmente, termine a resposta com uma linha exatamente neste formato:
+[[ABRIR: https://endereco-completo]]
+  Exemplos: pesquisa no Google → https://www.google.com/search?q=termo+da+busca ; vídeo ou música no YouTube → https://www.youtube.com/results?search_query=termo ; mapa ou rota → https://www.google.com/maps/search/local ; um site conhecido → o endereço dele.
+  Use no máximo um [[ABRIR: ...]] por resposta e diga na fala que está abrindo. Não escreva o endereço fora dessa linha.
+- Você não controla o computador, outras abas nem outros aplicativos. Se pedirem isso, explique em uma frase que essa função virá na versão para computador.`;
+}
+
+const DEFAULT_MODELS = { gemini: 'gemini-flash-lite-latest', groq: 'llama-3.3-70b-versatile' };
+/* Se o modelo escolhido estiver sobrecarregado, tenta estes em ordem */
+const FALLBACK_MODELS = {
+  gemini: ['gemini-flash-lite-latest', 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-2.5-flash'],
+  groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']
+};
 const KEY_HINTS = {
   gemini: 'Pegue a sua chave grátis em <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Ela fica salva só neste aparelho.',
   groq: 'Pegue a sua chave grátis em <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>. Ela fica salva só neste aparelho.'
@@ -177,15 +211,16 @@ const store = {
 };
 const cfg = Object.assign({
   nome:'Jarvis', tratamento:'senhor', provider:'gemini', key:'', model:'',
-  voiceName:'', voz:true, continuo:false, prompt:DEFAULT_PROMPT
+  voiceName:'', voz:true, continuo:false, busca:true, prompt:DEFAULT_PROMPT
 }, store.get('jarvis_cfg', {}));
 let history = store.get('jarvis_hist', []);   // [{role:'user'|'assistant', text}]
 let busy = false;
+let searchBroken = false;                      // desliga a busca nesta sessão se o Google recusar
 
 /* ================== INTERFACE ================== */
 const chat = $('chat'), input = $('input'), orb = $('orb'), statusEl = $('status');
 
-function escapeHtml(s){ return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function addMsg(text, cls){
   const d = document.createElement('div');
   d.className = 'msg ' + cls;
@@ -194,57 +229,122 @@ function addMsg(text, cls){
   chat.scrollTop = chat.scrollHeight;
   return d;
 }
+function addSources(el, sources){
+  if (!sources || !sources.length) return;
+  const box = document.createElement('div');
+  box.className = 'srcs';
+  box.innerHTML = 'Fontes: ' + sources.slice(0, 4).map(s =>
+    `<a href="${escapeHtml(s.uri)}" target="_blank" rel="noopener">${escapeHtml(s.title || 'link')}</a>`).join('');
+  el.appendChild(box);
+  chat.scrollTop = chat.scrollHeight;
+}
+function addOpenButton(el, url){
+  const a = document.createElement('a');
+  a.className = 'openbtn'; a.href = url; a.target = '_blank'; a.rel = 'noopener';
+  let host = url; try{ host = new URL(url).hostname.replace(/^www\./, ''); }catch{}
+  a.textContent = '🔗 Abrir ' + host;
+  const wrap = document.createElement('div');
+  wrap.appendChild(a);
+  el.appendChild(wrap);
+  chat.scrollTop = chat.scrollHeight;
+}
 function toast(t){ const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 3500); }
+
+const STATUS = {
+  idle:'Toque para falar', listening:'Ouvindo…', thinking:'Processando…', speaking:'Falando… (toque para parar)',
+  standby:'', awake:'Pode falar, estou ouvindo…'
+};
 function setState(s){
+  if (s === 'idle' && standby.on) s = 'standby';
   orb.className = s === 'idle' ? '' : s;
-  statusEl.textContent = { idle:'Toque para falar', listening:'Ouvindo…', thinking:'Processando…', speaking:'Falando… (toque para parar)' }[s];
+  statusEl.textContent = s === 'standby' ? `Em prontidão · diga "${cfg.nome}"` : STATUS[s];
 }
 function applyTitle(){ $('title').textContent = cfg.nome; document.title = cfg.nome; }
 
 function renderHistory(){
   chat.innerHTML = '';
-  if (!history.length) addMsg(`${cfg.nome} online. Toque no círculo para falar ou digite abaixo.`, 'sys');
+  if (!history.length) addMsg(`${cfg.nome} online. Toque no círculo para falar, digite abaixo, ou ligue o modo prontidão e chame "${cfg.nome}".`, 'sys');
   history.forEach(m => addMsg(m.text, m.role === 'user' ? 'user' : 'bot'));
 }
 
 /* ================== IA ================== */
+function searchActive(){ return cfg.busca && cfg.provider === 'gemini' && !searchBroken; }
 function systemPrompt(){
   const data = new Date().toLocaleString('pt-BR', { dateStyle:'full', timeStyle:'short' });
   return (cfg.prompt || DEFAULT_PROMPT)
-    .replaceAll('{NOME}', cfg.nome).replaceAll('{TRATAMENTO}', cfg.tratamento).replaceAll('{DATA}', data);
+    .replaceAll('{NOME}', cfg.nome).replaceAll('{TRATAMENTO}', cfg.tratamento).replaceAll('{DATA}', data)
+    + toolsPrompt(searchActive());
 }
 
-async function askAI(){
-  const model = cfg.model || DEFAULT_MODELS[cfg.provider];
-  const recent = history.slice(-24);
-  if (cfg.provider === 'groq'){
-    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + cfg.key },
-      body: JSON.stringify({
-        model, temperature:0.7,
-        messages:[{ role:'system', content:systemPrompt() }, ...recent.map(m => ({ role:m.role, content:m.text }))]
-      })
-    });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.error?.message || ('Erro ' + r.status));
-    return (data.choices?.[0]?.message?.content || '').trim();
-  }
-  // Gemini
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+class ApiError extends Error{ constructor(msg, status){ super(msg); this.status = status; } }
+function isOverload(e){
+  return [429, 500, 502, 503, 504].includes(e.status) || /overload|high demand|unavailable|quota|exhausted|rate limit/i.test(e.message);
+}
+function isSearchProblem(e){ return e.status === 400 && /tool|search|ground/i.test(e.message); }
+
+async function callGroq(model, recent){
+  const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method:'POST',
-    headers:{ 'Content-Type':'application/json', 'x-goog-api-key':cfg.key },
+    headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + cfg.key },
     body: JSON.stringify({
-      systemInstruction:{ parts:[{ text:systemPrompt() }] },
-      contents: recent.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts:[{ text:m.text }] })),
-      generationConfig:{ temperature:0.7 }
+      model, temperature:0.7,
+      messages:[{ role:'system', content:systemPrompt() }, ...recent.map(m => ({ role:m.role, content:m.text }))]
     })
   });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error?.message || ('Erro ' + r.status));
-  const text = (data.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join('').trim();
-  if (!text) throw new Error('A IA não retornou texto (' + (data.candidates?.[0]?.finishReason || 'sem motivo') + ').');
-  return text;
+  if (!r.ok) throw new ApiError(data.error?.message || ('Erro ' + r.status), r.status);
+  return { text:(data.choices?.[0]?.message?.content || '').trim(), sources:[] };
+}
+
+async function callGemini(model, recent, withSearch){
+  const body = {
+    systemInstruction:{ parts:[{ text:systemPrompt() }] },
+    contents: recent.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts:[{ text:m.text }] })),
+    generationConfig:{ temperature:0.7 }
+  };
+  if (withSearch) body.tools = [{ google_search:{} }];
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'x-goog-api-key':cfg.key },
+    body: JSON.stringify(body)
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new ApiError(data.error?.message || ('Erro ' + r.status), r.status);
+  const cand = data.candidates?.[0];
+  const text = (cand?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join('').trim();
+  if (!text) throw new ApiError('A IA não retornou texto (' + (cand?.finishReason || 'sem motivo') + ').', 0);
+  const sources = (cand?.groundingMetadata?.groundingChunks || [])
+    .map(c => c.web).filter(w => w && w.uri)
+    .filter((w, i, a) => a.findIndex(x => x.title === w.title) === i);
+  return { text, sources };
+}
+
+async function askAI(){
+  const recent = history.slice(-24);
+  const first = cfg.model || DEFAULT_MODELS[cfg.provider];
+  const models = [first, ...FALLBACK_MODELS[cfg.provider].filter(m => m !== first)];
+  let lastErr;
+  for (const model of models){
+    try{
+      if (cfg.provider === 'groq') return await callGroq(model, recent);
+      try{
+        return await callGemini(model, recent, searchActive());
+      }catch(e){
+        if (searchActive() && isSearchProblem(e)){
+          // modelo não aceita pesquisa: tenta sem ela
+          console.warn('Pesquisa indisponível em', model, e.message);
+          return await callGemini(model, recent, false);
+        }
+        throw e;
+      }
+    }catch(e){
+      lastErr = e;
+      console.warn('Modelo', model, 'falhou:', e.status, e.message);
+      if (isOverload(e) || e.status === 404) continue;   // tenta o próximo modelo
+      throw e;                                            // chave inválida etc.: para aqui
+    }
+  }
+  throw lastErr || new Error('Nenhum modelo respondeu.');
 }
 
 async function listModels(){
@@ -259,8 +359,23 @@ async function listModels(){
   return d.models
     .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
     .map(m => m.name.replace('models/', ''))
-    .filter(id => /gemini/i.test(id) && !/image|tts|embedding|audio|live/i.test(id))
+    .filter(id => /gemini/i.test(id) && !/image|tts|embedding|audio|live|robotics|computer-use|transcribe/i.test(id))
     .sort();
+}
+
+/* ================== ABRIR SITES ================== */
+function extractOpen(text){
+  const m = text.match(/\[\[\s*ABRIR\s*:\s*(\S+?)\s*\]\]/i);
+  const clean = text.replace(/\[\[\s*ABRIR\s*:[^\]]*\]\]/gi, '').trim();
+  let url = m ? m[1] : null;
+  if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
+  if (url){ try{ new URL(url); }catch{ url = null; } }
+  return { clean, url };
+}
+function tryOpen(url){
+  let w = null;
+  try{ w = window.open(url, '_blank', 'noopener'); }catch{}
+  return !!w;
 }
 
 /* ================== ENVIO ================== */
@@ -273,10 +388,17 @@ async function send(text){
   history.push({ role:'user', text });
   setState('thinking');
   try{
-    const reply = await askAI();
+    const { text:raw, sources } = await askAI();
+    const { clean, url } = extractOpen(raw);
+    const reply = clean || 'Pronto, senhor.';
     history.push({ role:'assistant', text:reply });
     store.set('jarvis_hist', history.slice(-60));
-    addMsg(reply, 'bot');
+    const el = addMsg(reply, 'bot');
+    addSources(el, sources);
+    if (url){
+      addOpenButton(el, url);
+      if (!tryOpen(url)) toast('Toque no botão "Abrir" para ver o site.');
+    }
     speak(reply);
   }catch(e){
     history.pop();
@@ -287,6 +409,7 @@ async function send(text){
 
 /* ================== VOZ: FALAR ================== */
 let voices = [];
+let lastSpeechEnd = 0;
 function loadVoices(){
   voices = ('speechSynthesis' in window) ? speechSynthesis.getVoices().filter(v => v.lang.toLowerCase().startsWith('pt')) : [];
   const sel = $('sVoice');
@@ -296,13 +419,14 @@ function loadVoices(){
 if ('speechSynthesis' in window){ speechSynthesis.onvoiceschanged = loadVoices; }
 function pickVoice(){
   return voices.find(v => v.name === cfg.voiceName)
-      || voices.find(v => v.lang === 'pt-BR' && /male|mascul|daniel|antonio|ricardo/i.test(v.name))
+      || voices.find(v => v.lang === 'pt-BR' && /antonio|antônio|daniel|male|mascul|ricardo/i.test(v.name))
       || voices.find(v => v.lang === 'pt-BR') || voices[0] || null;
 }
 function forSpeech(t){ return t.replace(/https?:\/\/\S+/g, 'link').replace(/[*#_`>~|]/g, '').replace(/\s+/g, ' ').trim(); }
 
-function speak(text){
-  if (!cfg.voz || !('speechSynthesis' in window)) return afterSpeak();
+function speak(text, onDone){
+  const done = () => { lastSpeechEnd = Date.now(); if (onDone) onDone(); else afterSpeak(); };
+  if (!cfg.voz || !('speechSynthesis' in window)){ done(); return; }
   speechSynthesis.cancel();
   // Divide em frases: evita o corte de falas longas no Chrome
   const parts = forSpeech(text).match(/[^.!?;:]+[.!?;:]*/g) || [text];
@@ -312,17 +436,17 @@ function speak(text){
     const u = new SpeechSynthesisUtterance(p.trim());
     u.lang = 'pt-BR'; if (voice) u.voice = voice;
     u.rate = 1.05; u.pitch = 0.9;
-    if (i === parts.length - 1){ u.onend = afterSpeak; u.onerror = afterSpeak; }
+    if (i === parts.length - 1){ u.onend = done; u.onerror = done; }
     speechSynthesis.speak(u);
   });
 }
 function afterSpeak(){
   if (orb.className === 'listening') return;
   setState('idle');
-  if (cfg.continuo) setTimeout(startListening, 350);
+  if (cfg.continuo && !standby.on) setTimeout(startListening, 350);
 }
 
-/* ================== VOZ: OUVIR ================== */
+/* ================== VOZ: OUVIR (toque) ================== */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null;
 function startListening(){
@@ -355,11 +479,129 @@ function startListening(){
 }
 function stopAll(){
   if (rec){ rec.stop(); return; }
-  if ('speechSynthesis' in window && speechSynthesis.speaking){ speechSynthesis.cancel(); setState('idle'); return; }
+  if ('speechSynthesis' in window && speechSynthesis.speaking){ speechSynthesis.cancel(); lastSpeechEnd = Date.now(); setState('idle'); return; }
 }
 
+/* ================== MODO PRONTIDÃO (palavra de ativação) ================== */
+const standby = { on:false, rec:null, awakeUntil:0, wakeLock:null, restartTimer:null };
+const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+function wakeWords(){
+  // "Jarbas" e "Jarvas" são erros comuns do reconhecimento em português
+  return [...new Set([norm(cfg.nome), 'jarvis', 'jarbas', 'jarvas', 'jervis', 'jarvys'])].filter(Boolean);
+}
+const FILLERS = new Set(['acorda', 'acorde', 'ei', 'hey', 'oi', 'ola', 'e', 'ai', 'por', 'favor', 'voce', 'esta', 'ai', 'ta', 'aí']);
+
+/* Devolve null se não chamou o nome; '' se só chamou; ou o comando falado depois do nome */
+function parseWake(text){
+  const words = text.trim().split(/\s+/);
+  const ww = wakeWords();
+  const idx = words.findIndex(w => ww.includes(norm(w)));
+  if (idx < 0) return null;
+  let rest = words.slice(idx + 1);
+  while (rest.length && FILLERS.has(norm(rest[0]))) rest = rest.slice(1);
+  return rest.join(' ').replace(/^[,.!?\s]+/, '').trim();
+}
+
+function standbyCanHear(){
+  if (!standby.on || busy) return false;
+  if ('speechSynthesis' in window && speechSynthesis.speaking) return false;
+  return Date.now() - lastSpeechEnd > 900;   // não escuta a própria voz
+}
+
+function wakeUp(){
+  standby.awakeUntil = Date.now() + 60000;   // espera a fala terminar antes de contar
+  speak(`Sim, ${cfg.tratamento}?`, () => {
+    standby.awakeUntil = Date.now() + 9000;
+    setState('awake');
+    clearTimeout(wakeUp.t);
+    wakeUp.t = setTimeout(() => { if (orb.className === 'awake') setState('idle'); }, 9000);
+  });
+}
+
+function handleStandbyPhrase(text){
+  if (!text) return;
+  if (Date.now() < standby.awakeUntil && orb.className === 'awake'){
+    standby.awakeUntil = 0;
+    const cmd = parseWake(text);
+    send(cmd === null ? text : (cmd || text));
+    return;
+  }
+  const cmd = parseWake(text);
+  if (cmd === null) return;          // conversa que não era com ele
+  if (cmd.length < 2) wakeUp();      // "Jarvis" ou "Jarvis, acorda"
+  else send(cmd);                    // "Jarvis, que horas são?"
+}
+
+function startStandbyRec(){
+  if (!standby.on || standby.rec) return;
+  const r = new SR();
+  r.lang = 'pt-BR'; r.continuous = true; r.interimResults = true;
+  r.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++){
+      const res = e.results[i];
+      const t = res[0].transcript;
+      if (!standbyCanHear()) continue;
+      if (!res.isFinal){
+        // mostra na caixa o que está ouvindo depois de acordado
+        if (orb.className === 'awake') input.value = t;
+        continue;
+      }
+      input.value = '';
+      handleStandbyPhrase(t);
+    }
+  };
+  r.onerror = e => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed'){
+      toast('Permita o microfone para usar o modo prontidão.');
+      stopStandby();
+    }
+  };
+  r.onend = () => {
+    standby.rec = null;
+    // o navegador encerra a escuta de tempos em tempos: religa sozinho
+    if (standby.on){ clearTimeout(standby.restartTimer); standby.restartTimer = setTimeout(startStandbyRec, 400); }
+  };
+  try{ r.start(); standby.rec = r; }catch(e){ standby.restartTimer = setTimeout(startStandbyRec, 1000); }
+}
+
+async function keepScreenOn(){
+  try{ if ('wakeLock' in navigator && standby.on) standby.wakeLock = await navigator.wakeLock.request('screen'); }catch{}
+}
+function startStandby(){
+  if (!SR){ toast('Seu navegador não suporta escuta contínua. Use o Chrome.'); return; }
+  if (!cfg.key){ openSettings(); toast('Configure a chave da API primeiro.'); return; }
+  if (rec) rec.abort();
+  standby.on = true;
+  updateStandbyBtn();
+  startStandbyRec();
+  keepScreenOn();
+  setState('idle');
+  toast(`Prontidão ligada. Diga "${cfg.nome}" para chamar.`);
+}
+function stopStandby(){
+  standby.on = false;
+  clearTimeout(standby.restartTimer);
+  if (standby.rec){ try{ standby.rec.abort(); }catch{} standby.rec = null; }
+  try{ standby.wakeLock && standby.wakeLock.release(); }catch{}
+  standby.wakeLock = null;
+  updateStandbyBtn();
+  setState('idle');
+}
+function updateStandbyBtn(){
+  const b = $('btnStandby');
+  b.classList.toggle('on', standby.on);
+  b.textContent = standby.on ? '⏻ Modo prontidão: LIGADO' : '⏻ Modo prontidão: desligado';
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && standby.on){ keepScreenOn(); startStandbyRec(); }
+});
+$('btnStandby').addEventListener('click', () => standby.on ? stopStandby() : startStandby());
+
+/* ================== BOTÕES ================== */
 orb.addEventListener('click', () => {
-  if (orb.className === 'listening' || orb.className === 'speaking') stopAll();
+  if (orb.className === 'speaking'){ stopAll(); return; }
+  if (standby.on){ wakeUp(); return; }            // em prontidão, o toque também acorda
+  if (orb.className === 'listening') stopAll();
   else startListening();
 });
 $('composer').addEventListener('submit', e => { e.preventDefault(); const t = input.value; input.value = ''; send(t); });
@@ -376,7 +618,7 @@ function fillModelSelect(list){
 function openSettings(){
   $('sNome').value = cfg.nome; $('sTrat').value = cfg.tratamento;
   $('sProv').value = cfg.provider; $('sKey').value = cfg.key;
-  $('sVoz').checked = cfg.voz; $('sCont').checked = cfg.continuo;
+  $('sVoz').checked = cfg.voz; $('sCont').checked = cfg.continuo; $('sBusca').checked = cfg.busca;
   $('sPrompt').value = cfg.prompt;
   $('keyHint').innerHTML = KEY_HINTS[cfg.provider];
   fillModelSelect(); loadVoices();
@@ -390,10 +632,13 @@ function saveSettings(){
     provider: prov, key: $('sKey').value.trim(),
     model: $('sModel').value === DEFAULT_MODELS[prov] ? '' : $('sModel').value,
     voiceName: $('sVoice').value, voz: $('sVoz').checked, continuo: $('sCont').checked,
+    busca: $('sBusca').checked,
     prompt: $('sPrompt').value.trim() || DEFAULT_PROMPT
   });
+  searchBroken = false;
   store.set('jarvis_cfg', cfg);
   applyTitle();
+  setState(orb.className || 'idle');
 }
 $('btnSettings').onclick = openSettings;
 $('btnClose').onclick = () => dlg.close();
@@ -410,9 +655,12 @@ $('btnModels').onclick = async () => {
 };
 
 /* ================== INÍCIO ================== */
+// Quem salvou o modelo antigo (sobrecarregado) passa a usar o novo padrão; o reserva automático cobre o resto
+if (cfg.model === 'gemini-flash-lite-latest'){ cfg.model = ''; store.set('jarvis_cfg', cfg); }
 applyTitle();
 renderHistory();
 loadVoices();
+setState('idle');
 if (!cfg.key) setTimeout(() => { addMsg('Primeiro acesso: abra as configurações (⚙) e cole a sua chave gratuita da API.', 'sys'); openSettings(); }, 400);
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')){
   navigator.serviceWorker.register('sw.js').catch(() => {});

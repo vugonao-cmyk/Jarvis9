@@ -55,6 +55,21 @@ No iPhone, o reconhecimento de voz pode ser limitado. Se o microfone falhar, use
 
 **Modo conversa:** ative nas configurações para ele voltar a ouvir sozinho depois de responder, como um diálogo contínuo.
 
+## Modo prontidão ("Jarvis, acorda")
+
+Toque em **⏻ Modo prontidão** uma vez. A partir daí ele fica escutando, e é só chamar pelo nome:
+- **"Jarvis"** ou **"Jarvis, acorda"** → ele responde "Sim, senhor?" e espera o seu pedido.
+- **"Jarvis, que horas são?"** → ele já responde direto.
+
+Conversas que não começam com o nome dele são ignoradas. A tela fica acesa enquanto a prontidão estiver ligada.
+Limitação do navegador: com a tela apagada ou o app minimizado, ele não consegue escutar.
+
+## Internet e sites
+
+- **Pesquisa no Google:** ele pesquisa sozinho quando você pergunta coisas atuais (clima, notícias, preços, jogos) e mostra as fontes. Ligue ou desligue nas configurações.
+- **Abrir sites:** peça "abre o YouTube e toca lofi", "mostra no mapa a padaria mais próxima", "pesquisa no Google tal coisa". Se o navegador bloquear a abertura automática, aparece um botão **🔗 Abrir** na conversa.
+- **Troca automática de modelo:** se um modelo do Google estiver sobrecarregado, ele passa sozinho para outro.
+
 ## Personalizar a personalidade
 
 Nas configurações há o campo **Personalidade (prompt do sistema)**. Edite à vontade, por exemplo:
