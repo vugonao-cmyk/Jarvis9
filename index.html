@@ -113,6 +113,7 @@
     <span class="dot"></span>
     <h1 id="title">Jarvis</h1>
     <button class="iconbtn" id="btnInstall" aria-label="Instalar" hidden>📲</button>
+    <button class="iconbtn" id="btnNovo" aria-label="Limpar tela">🧹</button>
     <button class="iconbtn" id="btnSettings" aria-label="Configurações">⚙</button>
   </header>
 
@@ -197,6 +198,7 @@ Regras de comportamento:
 - Pode fazer comentários espirituosos e levemente irônicos, mas sempre com respeito e lealdade.
 - Se não souber algo ou não puder fazer algo, diga isso com honestidade e ofereça uma alternativa. Nunca invente fatos.
 - Você lembra do que foi dito nesta conversa e usa isso para dar continuidade.
+- Fale de um jeito espontâneo e natural, como uma pessoa de verdade batendo papo — não como um robô lendo um roteiro. Varie a forma de começar as frases (evite abrir toda resposta do mesmo jeito), reaja ao que o usuário disse antes de só informar, e deixe sua opinião ou reação transparecer quando fizer sentido. Educado e leal sempre, mas nunca robótico ou repetitivo.
 
 Contexto atual: hoje é {DATA}.`;
 
@@ -208,7 +210,7 @@ CAPACIDADES DO SISTEMA (siga sempre):
 ${searchOn
   ? '- Você TEM acesso à pesquisa do Google. Use-a para qualquer informação atual ou que você não saiba com certeza: notícias, clima, preços, cotações, resultados de jogos, horários, lançamentos. Nunca diga que não tem acesso à internet.'
   : '- Você tem as ferramentas "clima" (tempo e previsão de qualquer cidade), "wikipedia" (fatos sobre pessoas, lugares, história, ciência), "cotacao" (dólar, euro, bitcoin etc. em reais) e "tocar_musica" (toca uma música livre de direitos, sem custo e sem propaganda, com um player dentro da conversa). Use-as sempre que o assunto pedir, em vez de chutar. Para notícias ou outros assuntos do dia que essas ferramentas não cobrem, avise que sua informação pode estar desatualizada e ofereça abrir uma pesquisa no Google.'}
-- Quando o usuário pedir para tocar, colocar ou ouvir uma música (mesmo um pedido genérico, como "toca algo eletrônico"), use a ferramenta "tocar_musica" (nunca o [[ABRIR: ...]] do YouTube para isso). Ela é o acervo livre do Internet Archive, então a versão original de um sucesso comercial pode não estar disponível — se não achar nada, diga isso e sugira tentar outro nome, artista ou estilo. Depois de chamar a ferramenta, responda apenas confirmando em uma frase curta, o player já aparece sozinho na conversa (ele já vem com um botão de próxima faixa, então não precisa avisar sobre isso). Se o usuário pedir para trocar, pular ou mudar a música que está tocando, chame "tocar_musica" de novo (repita a busca anterior ou refine, conforme o pedido).
+- Quando o usuário pedir para tocar, colocar ou ouvir uma música — inclusive um pedido de "rádio" ou "estação" de um estilo, como "bota uma rádio de pop", "quero ouvir jazz", "toca um rap" — use a ferramenta "tocar_musica" passando o estilo ou nome pedido (nunca o [[ABRIR: ...]] do YouTube para isso). Ela já monta uma leva de várias faixas parecidas, tocando uma atrás da outra como uma rádio de verdade. É o acervo livre do Internet Archive, então músicas de artistas independentes, não os sucessos comerciais do momento — se o usuário pedir por "as mais tocadas de hoje" ou um hit específico bem conhecido, explique com uma frase que isso não está disponível de graça e sem propaganda, mas ofereça tocar algo do mesmo estilo. Se não achar nada, diga isso e sugira outro nome, artista ou estilo. Depois de chamar a ferramenta, responda apenas confirmando em uma frase curta, o player já aparece sozinho na conversa (ele já vem com um botão de próxima faixa, então não precisa avisar sobre isso). Se o usuário pedir para trocar, pular ou mudar a música que está tocando, chame "tocar_musica" de novo (repita a busca anterior ou refine, conforme o pedido).
 - Você pode ABRIR sites para o usuário. Quando ele pedir para abrir, mostrar, tocar, assistir ou pesquisar algo visualmente, termine a resposta com uma linha exatamente neste formato:
 [[ABRIR: https://endereco-completo]]
   Exemplos: pesquisa no Google → https://www.google.com/search?q=termo+da+busca ; vídeo ou música no YouTube → https://www.youtube.com/results?search_query=termo ; mapa ou rota → https://www.google.com/maps/search/local ; um site conhecido → o endereço dele.
@@ -244,6 +246,7 @@ const cfg = Object.assign({
 let history = store.get('jarvis_hist', []);   // [{role:'user'|'assistant', text}]
 let facts = store.get('jarvis_facts_cache', []);   // fatos permanentes guardados sobre o usuário
 let busy = false;
+let busySince = 0;
 // Pesquisa Google recusada (cota do plano grátis): pula por 12 horas para não perder tempo
 let searchBroken = Date.now() < (store.get('jarvis_search_off_until', 0) || 0);
 function markSearchBroken(){ searchBroken = true; store.set('jarvis_search_off_until', Date.now() + 12 * 3600e3); }
@@ -403,9 +406,14 @@ async function sbFetch(path, opt = {}){
   return r;
 }
 async function cloudLoadHistory(){
-  const r = await sbFetch(`jarvis_messages?space=eq.${encodeURIComponent(cfg.space)}&select=role,content&order=created_at.asc&limit=300`,
+  const r = await sbFetch(`jarvis_messages?space=eq.${encodeURIComponent(cfg.space)}&select=role,content,created_at&order=created_at.asc&limit=300`,
     { headers:{ Accept:'application/json' } });
-  return (await r.json()).map(x => ({ role:x.role, text:x.content }));
+  const linhas = await r.json();
+  // "Limpar tela" (🧹) marca um momento local: mensagens antigas continuam guardadas na nuvem
+  // para sempre, mas este aparelho não volta a mostrá-las sozinho depois de limpar.
+  const limpoEm = store.get('jarvis_cleared_at', 0);
+  return linhas.filter(x => !limpoEm || new Date(x.created_at).getTime() > limpoEm)
+               .map(x => ({ role:x.role, text:x.content }));
 }
 async function cloudLoadFacts(){
   const r = await sbFetch(`jarvis_facts?space=eq.${encodeURIComponent(cfg.space)}&select=fact&order=created_at.asc&limit=300`,
@@ -519,25 +527,41 @@ const TOOLS = {
     }
     async function buscar(q){
       const url = 'https://archive.org/advancedsearch.php?q=' + encodeURIComponent(q) +
-        '&fl[]=identifier&rows=18&output=json&sort[]=downloads+desc';
+        '&fl[]=identifier&rows=25&output=json&sort[]=' + encodeURIComponent('downloads desc');
       const s = await getJSON(url);
       return s.response?.docs || [];
     }
-    const termo = (busca || '').trim() || 'electronic';
+    // Pedidos de gênero/"estação" (pop, jazz, reggae, rap…) ganham sinônimos para achar mais
+    // faixas parecidas — o acervo é de artistas independentes, então quanto mais amplo, melhor.
+    const GENEROS = {
+      pop:'pop OR dance OR synthpop', jazz:'jazz OR swing OR bossa', reggae:'reggae OR dub OR ska',
+      rap:'rap OR "hip hop" OR hiphop', 'hip hop':'"hip hop" OR rap OR hiphop', rock:'rock OR punk OR indie',
+      eletronica:'electronic OR techno OR house OR edm', 'eletrônica':'electronic OR techno OR house OR edm',
+      electronic:'electronic OR techno OR house OR edm', lofi:'lofi OR "lo-fi" OR chillhop',
+      funk:'funk OR soul', classica:'classical OR orchestral', 'clássica':'classical OR orchestral',
+      mpb:'mpb OR bossa OR brazilian', sertanejo:'sertanejo OR brazilian', ambient:'ambient OR chillout'
+    };
+    function expandirGenero(t){
+      const chave = t.toLowerCase().trim();
+      for (const k in GENEROS){ if (chave === k || chave.includes(k)) return GENEROS[k]; }
+      return t;
+    }
+    const termoOriginal = (busca || '').trim() || 'electronic';
+    const termo = expandirGenero(termoOriginal);
     let docs = [];
     for (const q of [
-      `mediatype:(audio) AND collection:(netlabels OR opensource_audio OR etree) AND (${termo})`,
-      `mediatype:(audio) AND (${termo})`
+      `mediatype:audio AND collection:(netlabels OR opensource_audio OR etree) AND (${termo})`,
+      `mediatype:audio AND (${termo})`
     ]){
       try{ docs = await buscar(q); }catch{ docs = []; }
       if (docs.length) break;
     }
     if (!docs.length) return { result:{ erro:'Nenhuma música livre encontrada para esse pedido' } };
-    // Pega até 5 faixas prontas para formar uma fila (permite trocar de música sem pedir de novo)
+    // Pega até 8 faixas prontas para formar uma fila (efeito "rádio": toca uma atrás da outra)
     const ordem = docs.slice().sort(() => Math.random() - 0.5);
     const faixas = [];
     for (const doc of ordem){
-      if (faixas.length >= 5) break;
+      if (faixas.length >= 8) break;
       try{
         const track = await pickAudioFile(doc.identifier);
         if (track) faixas.push(track);
@@ -693,7 +717,7 @@ async function send(text){
   text = text.trim();
   if (!text || busy) return;
   if (!cfg.key){ openSettings(); toast('Configure a chave da API primeiro.'); return; }
-  busy = true;
+  busy = true; busySince = Date.now();
   addMsg(text, 'user');
   history.push({ role:'user', text });
   cloudSaveMessage('user', text);
@@ -958,6 +982,20 @@ function saveSettings(){
   if (cfg.space && cfg.space !== prevSpace) initCloud();
 }
 $('btnSettings').onclick = openSettings;
+$('btnNovo').onclick = () => {
+  if (!history.length){ toast('A tela já está limpa.'); return; }
+  // Guarda a conversa atual num arquivo local antes de limpar a tela — nada se perde.
+  const arquivo = store.get('jarvis_archive', []);
+  arquivo.push({ em:new Date().toISOString(), mensagens:history });
+  store.set('jarvis_archive', arquivo.slice(-20));   // guarda as últimas 20 conversas limpas
+  history = [];
+  store.set('jarvis_hist', []);
+  store.set('jarvis_cleared_at', Date.now());
+  renderHistory();
+  toast(cfg.space
+    ? 'Tela limpa. A conversa anterior continua guardada na nuvem, só não volta a aparecer sozinha aqui.'
+    : 'Tela limpa. A conversa anterior ficou guardada neste aparelho.');
+};
 $('btnClose').onclick = () => dlg.close();
 $('btnSave').onclick = () => { saveSettings(); dlg.close(); toast('Configurações salvas.'); if (!history.length) renderHistory(); };
 $('btnResetPrompt').onclick = () => { $('sPrompt').value = DEFAULT_PROMPT; };
@@ -1000,6 +1038,18 @@ if (cfg.space) initCloud();
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')){
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+
+/* Evita a tela "travada": quando o app volta do segundo plano (ex: depois de
+   ficar minimizado no Android), garante que não fica preso num estado antigo. */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (busy && Date.now() - busySince > 20000){
+    busy = false;
+    setState('idle');
+    toast('A resposta anterior foi interrompida. Pode perguntar de novo.');
+  }
+  chat.scrollTop = chat.scrollHeight;
+});
 
 /* ================== INSTALAR COMO APP (celular e computador) ================== */
 const jaInstalado = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;

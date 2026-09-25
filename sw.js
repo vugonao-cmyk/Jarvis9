@@ -1,5 +1,5 @@
 // Service worker: permite instalar o app e abrir mesmo sem internet (a IA precisa de internet).
-const CACHE = 'jarvis-v7';
+const CACHE = 'jarvis-v8';
 const ASSETS = ['./', './index.html', './manifest.json', './icon.svg', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
