@@ -55,6 +55,22 @@ No iPhone, o reconhecimento de voz pode ser limitado. Se o microfone falhar, use
 
 **Modo conversa:** ative nas configurações para ele voltar a ouvir sozinho depois de responder, como um diálogo contínuo.
 
+## Memória na nuvem (para sempre, entre celular e computador)
+
+Nas configurações, no campo **Código de sincronização**, crie um código (ou toque em **Gerar código aleatório**) e use **o mesmo código no celular e no computador**. A partir daí:
+
+- Toda a conversa fica guardada **para sempre** num banco de dados na nuvem (Supabase), não só neste aparelho.
+- O celular e o computador passam a **compartilhar a mesma conversa**: o que você falar em um aparece no outro.
+- O Jarvis **aprende fatos duradouros sozinho** — nomes de pessoas próximas, preferências, projetos, decisões — e lembra deles em qualquer conversa futura, em qualquer aparelho.
+
+**Trate o código como uma senha.** Quem souber o código acessa essa memória. Prefira o código gerado automaticamente (algo como `jarvis-a1b2c3`) a uma palavra fácil de adivinhar, e não compartilhe.
+
+**Apagar:**
+- **Apagar conversa** limpa só a tela deste momento; se você usa a nuvem, ela volta a aparecer no próximo acesso.
+- **Apagar memória da nuvem** apaga tudo de vez — conversas e fatos guardados — e não pode ser desfeito.
+
+Sem código de sincronização, o Jarvis funciona do mesmo jeito, só que a conversa fica salva apenas neste aparelho, como antes.
+
 ## Modo prontidão ("Jarvis, acorda")
 
 Toque em **⏻ Modo prontidão** uma vez. A partir daí ele fica escutando, e é só chamar pelo nome:
@@ -63,6 +79,14 @@ Toque em **⏻ Modo prontidão** uma vez. A partir daí ele fica escutando, e é
 
 Conversas que não começam com o nome dele são ignoradas. A tela fica acesa enquanto a prontidão estiver ligada.
 Limitação do navegador: com a tela apagada ou o app minimizado, ele não consegue escutar.
+
+## Tocar música
+
+Peça "toca uma música lofi", "coloca um jazz para tocar" ou "toca [nome da música/artista]". Aparece direto na conversa um player simples — um botão de play, o nome da faixa e do artista — e a música toca ali mesmo, sem abrir outra aba, sem vídeo e sem propaganda.
+
+As músicas vêm do acervo livre do Internet Archive (artistas independentes e netlabels com licença livre), não do Spotify nem do YouTube. Por isso a versão original de um sucesso comercial famoso pode não estar disponível — nesse caso o Jarvis avisa e você pode tentar outro nome, artista ou estilo (lofi, jazz, acústico, eletrônica…). Tocar uma música nova pausa a anterior automaticamente.
+
+**Trocar de música:** o player já vem com um botão **⏭ próxima faixa**, ao lado do play — toque nele para pular para a próxima música da mesma leva, sem precisar pedir de novo. Também dá para pedir por voz ("troca essa música", "pula essa"). Quando a fila da leva atual acabar, é só pedir outra música (por nome, artista ou estilo) que uma nova leva é montada.
 
 ## Internet e sites
 

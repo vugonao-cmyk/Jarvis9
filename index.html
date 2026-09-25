@@ -70,6 +70,10 @@
   .player .pbtn{flex:0 0 auto;width:38px;height:38px;border-radius:50%;border:none;background:var(--glow);
     color:#02121d;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center}
   .player .pbtn:disabled{opacity:.5;cursor:default}
+  .player .pnext{flex:0 0 auto;width:32px;height:32px;border-radius:50%;border:1px solid var(--line);
+    background:none;color:var(--text);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .player .pnext:disabled{opacity:.35;cursor:default}
+  .player .pnext:not(:disabled):active{border-color:var(--glow);color:var(--glow)}
   .player .pinfo{flex:1;min-width:0}
   .player .ptitle{font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .player .partist{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -204,7 +208,7 @@ CAPACIDADES DO SISTEMA (siga sempre):
 ${searchOn
   ? '- Você TEM acesso à pesquisa do Google. Use-a para qualquer informação atual ou que você não saiba com certeza: notícias, clima, preços, cotações, resultados de jogos, horários, lançamentos. Nunca diga que não tem acesso à internet.'
   : '- Você tem as ferramentas "clima" (tempo e previsão de qualquer cidade), "wikipedia" (fatos sobre pessoas, lugares, história, ciência), "cotacao" (dólar, euro, bitcoin etc. em reais) e "tocar_musica" (toca uma música livre de direitos, sem custo e sem propaganda, com um player dentro da conversa). Use-as sempre que o assunto pedir, em vez de chutar. Para notícias ou outros assuntos do dia que essas ferramentas não cobrem, avise que sua informação pode estar desatualizada e ofereça abrir uma pesquisa no Google.'}
-- Quando o usuário pedir para tocar, colocar ou ouvir uma música (mesmo um pedido genérico, como "toca algo eletrônico"), use a ferramenta "tocar_musica" (nunca o [[ABRIR: ...]] do YouTube para isso). Ela é o acervo livre do Internet Archive, então a versão original de um sucesso comercial pode não estar disponível — se não achar nada, diga isso e sugira tentar outro nome, artista ou estilo. Depois de chamar a ferramenta, responda apenas confirmando em uma frase curta, o player já aparece sozinho na conversa.
+- Quando o usuário pedir para tocar, colocar ou ouvir uma música (mesmo um pedido genérico, como "toca algo eletrônico"), use a ferramenta "tocar_musica" (nunca o [[ABRIR: ...]] do YouTube para isso). Ela é o acervo livre do Internet Archive, então a versão original de um sucesso comercial pode não estar disponível — se não achar nada, diga isso e sugira tentar outro nome, artista ou estilo. Depois de chamar a ferramenta, responda apenas confirmando em uma frase curta, o player já aparece sozinho na conversa (ele já vem com um botão de próxima faixa, então não precisa avisar sobre isso). Se o usuário pedir para trocar, pular ou mudar a música que está tocando, chame "tocar_musica" de novo (repita a busca anterior ou refine, conforme o pedido).
 - Você pode ABRIR sites para o usuário. Quando ele pedir para abrir, mostrar, tocar, assistir ou pesquisar algo visualmente, termine a resposta com uma linha exatamente neste formato:
 [[ABRIR: https://endereco-completo]]
   Exemplos: pesquisa no Google → https://www.google.com/search?q=termo+da+busca ; vídeo ou música no YouTube → https://www.youtube.com/results?search_query=termo ; mapa ou rota → https://www.google.com/maps/search/local ; um site conhecido → o endereço dele.
@@ -292,26 +296,62 @@ function addPlayer(el, track){
   const fill = document.createElement('i');
   bar.appendChild(fill);
   info.appendChild(title); info.appendChild(artist); info.appendChild(bar);
-  const credit = document.createElement('div');
-  credit.className = 'pcredit'; credit.textContent = 'Jamendo';
-  wrap.appendChild(btn); wrap.appendChild(info); wrap.appendChild(credit);
+  const next = document.createElement('button');
+  next.className = 'pnext'; next.type = 'button'; next.textContent = '⏭';
+  wrap.appendChild(btn); wrap.appendChild(info); wrap.appendChild(next);
   el.appendChild(wrap);
   chat.scrollTop = chat.scrollHeight;
 
-  const audio = new Audio(track.url);
+  // Fila de faixas alternativas, para trocar de música sem precisar pedir de novo
+  const fila = Array.isArray(track.fila) ? track.fila.slice() : [];
+  next.disabled = !fila.length;
+
+  let audio = new Audio(track.url);
   audio.preload = 'none';
+  let wasPlaying = false;
+
+  function bindAudioEvents(){
+    audio.addEventListener('play', () => { btn.textContent = '⏸'; currentAudio = audio; });
+    audio.addEventListener('pause', () => { btn.textContent = '▶'; });
+    audio.addEventListener('ended', () => { fill.style.width = '0%'; if (fila.length) trocar(); else btn.textContent = '▶'; });
+    audio.addEventListener('timeupdate', () => {
+      if (audio.duration) fill.style.width = (audio.currentTime / audio.duration * 100) + '%';
+    });
+    audio.addEventListener('error', () => {
+      if (fila.length) { toast('Essa faixa falhou, pulando para a próxima…'); trocar(); }
+      else { btn.disabled = true; btn.textContent = '✕'; toast('Essa faixa não pôde ser carregada.'); }
+    });
+  }
+  bindAudioEvents();
+
+  function trocar(){
+    const prox = fila.shift();
+    if (!prox) return;
+    wasPlaying = !audio.paused;
+    audio.pause();
+    audio = new Audio(prox.url);
+    audio.preload = 'none';
+    bindAudioEvents();
+    title.textContent = prox.nome;
+    artist.textContent = prox.artista || '';
+    fill.style.width = '0%';
+    btn.disabled = false;
+    next.disabled = !fila.length;
+    if (wasPlaying || currentAudio === null || currentAudio.paused){
+      audio.play().catch(() => toast('Não consegui tocar essa faixa.'));
+      currentAudio = audio;
+    }
+  }
+
   btn.addEventListener('click', () => {
     if (currentAudio && currentAudio !== audio){ currentAudio.pause(); }
     if (audio.paused){ audio.play().catch(() => toast('Não consegui tocar essa faixa.')); currentAudio = audio; }
     else audio.pause();
   });
-  audio.addEventListener('play', () => { btn.textContent = '⏸'; });
-  audio.addEventListener('pause', () => { btn.textContent = '▶'; });
-  audio.addEventListener('ended', () => { btn.textContent = '▶'; fill.style.width = '0%'; });
-  audio.addEventListener('timeupdate', () => {
-    if (audio.duration) fill.style.width = (audio.currentTime / audio.duration * 100) + '%';
+  next.addEventListener('click', () => {
+    if (!fila.length) return;
+    trocar();
   });
-  audio.addEventListener('error', () => { btn.disabled = true; btn.textContent = '✕'; toast('Essa faixa não pôde ser carregada.'); });
 }
 function toast(t){ const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 3500); }
 
@@ -479,7 +519,7 @@ const TOOLS = {
     }
     async function buscar(q){
       const url = 'https://archive.org/advancedsearch.php?q=' + encodeURIComponent(q) +
-        '&fl[]=identifier&rows=8&output=json&sort[]=downloads+desc';
+        '&fl[]=identifier&rows=18&output=json&sort[]=downloads+desc';
       const s = await getJSON(url);
       return s.response?.docs || [];
     }
@@ -493,20 +533,24 @@ const TOOLS = {
       if (docs.length) break;
     }
     if (!docs.length) return { result:{ erro:'Nenhuma música livre encontrada para esse pedido' } };
+    // Pega até 5 faixas prontas para formar uma fila (permite trocar de música sem pedir de novo)
     const ordem = docs.slice().sort(() => Math.random() - 0.5);
+    const faixas = [];
     for (const doc of ordem){
+      if (faixas.length >= 5) break;
       try{
         const track = await pickAudioFile(doc.identifier);
-        if (track){
-          return {
-            source:{ uri:'https://archive.org/details/' + doc.identifier, title:'Internet Archive: ' + track.nome },
-            result:{ ok:true, tocando:track.nome, artista:track.artista },
-            player:track
-          };
-        }
+        if (track) faixas.push(track);
       }catch{}
     }
-    return { result:{ erro:'Não consegui carregar um arquivo de áudio para esse pedido' } };
+    if (!faixas.length) return { result:{ erro:'Não consegui carregar um arquivo de áudio para esse pedido' } };
+    const [primeira, ...fila] = faixas;
+    primeira.fila = fila;
+    return {
+      source:{ uri:'https://archive.org/details/' + (docs[0]?.identifier || ''), title:'Internet Archive: ' + primeira.nome },
+      result:{ ok:true, tocando:primeira.nome, artista:primeira.artista, mais_na_fila:fila.length },
+      player:primeira
+    };
   }
 };
 
