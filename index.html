@@ -142,7 +142,7 @@
       <select id="sVoice"></select>
 
       <div class="row"><input type="checkbox" id="sBusca"><span>Pesquisar na internet (Google) quando precisar</span></div>
-      <div class="hint">Só funciona com o Gemini. Se der erro de cota, desligue.</div>
+      <div class="hint">Só no Gemini. Se o plano grátis não liberar, ele usa sozinho as fontes grátis (clima, Wikipédia, cotações).</div>
       <div class="row"><input type="checkbox" id="sVoz"><span>Responder em voz alta</span></div>
       <div class="row"><input type="checkbox" id="sCont"><span>Modo conversa (volta a ouvir depois de responder)</span></div>
 
@@ -184,7 +184,7 @@ function toolsPrompt(searchOn){
 CAPACIDADES DO SISTEMA (siga sempre):
 ${searchOn
   ? '- Você TEM acesso à pesquisa do Google. Use-a para qualquer informação atual ou que você não saiba com certeza: notícias, clima, preços, cotações, resultados de jogos, horários, lançamentos. Nunca diga que não tem acesso à internet.'
-  : '- A pesquisa na internet está desligada; se precisarem de informação atual, avise que pode ser desatualizada e sugira ligar a pesquisa nas configurações.'}
+  : '- Você tem as ferramentas "clima" (tempo e previsão de qualquer cidade), "wikipedia" (fatos sobre pessoas, lugares, história, ciência) e "cotacao" (dólar, euro, bitcoin etc. em reais). Use-as sempre que o assunto pedir, em vez de chutar. Para notícias ou outros assuntos do dia que essas ferramentas não cobrem, avise que sua informação pode estar desatualizada e ofereça abrir uma pesquisa no Google.'}
 - Você pode ABRIR sites para o usuário. Quando ele pedir para abrir, mostrar, tocar, assistir ou pesquisar algo visualmente, termine a resposta com uma linha exatamente neste formato:
 [[ABRIR: https://endereco-completo]]
   Exemplos: pesquisa no Google → https://www.google.com/search?q=termo+da+busca ; vídeo ou música no YouTube → https://www.youtube.com/results?search_query=termo ; mapa ou rota → https://www.google.com/maps/search/local ; um site conhecido → o endereço dele.
@@ -195,7 +195,7 @@ ${searchOn
 const DEFAULT_MODELS = { gemini: 'gemini-flash-lite-latest', groq: 'llama-3.3-70b-versatile' };
 /* Se o modelo escolhido estiver sobrecarregado, tenta estes em ordem */
 const FALLBACK_MODELS = {
-  gemini: ['gemini-flash-lite-latest', 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-2.5-flash'],
+  gemini: ['gemini-flash-lite-latest', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.5-flash-lite'],
   groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']
 };
 const KEY_HINTS = {
@@ -215,7 +215,9 @@ const cfg = Object.assign({
 }, store.get('jarvis_cfg', {}));
 let history = store.get('jarvis_hist', []);   // [{role:'user'|'assistant', text}]
 let busy = false;
-let searchBroken = false;                      // desliga a busca nesta sessão se o Google recusar
+// Pesquisa Google recusada (cota do plano grátis): pula por 12 horas para não perder tempo
+let searchBroken = Date.now() < (store.get('jarvis_search_off_until', 0) || 0);
+function markSearchBroken(){ searchBroken = true; store.set('jarvis_search_off_until', Date.now() + 12 * 3600e3); }
 
 /* ================== INTERFACE ================== */
 const chat = $('chat'), input = $('input'), orb = $('orb'), statusEl = $('status');
@@ -259,6 +261,7 @@ function setState(s){
   orb.className = s === 'idle' ? '' : s;
   statusEl.textContent = s === 'standby' ? `Em prontidão · diga "${cfg.nome}"` : STATUS[s];
 }
+function setStatusDetail(t){ if (orb.className === 'thinking') statusEl.textContent = t; }
 function applyTitle(){ $('title').textContent = cfg.nome; document.title = cfg.nome; }
 
 function renderHistory(){
@@ -280,7 +283,52 @@ class ApiError extends Error{ constructor(msg, status){ super(msg); this.status 
 function isOverload(e){
   return [429, 500, 502, 503, 504].includes(e.status) || /overload|high demand|unavailable|quota|exhausted|rate limit/i.test(e.message);
 }
-function isSearchProblem(e){ return e.status === 400 && /tool|search|ground/i.test(e.message); }
+function isGone(e){ return e.status === 404 || /no longer available|not found|is not supported for generateContent/i.test(e.message); }
+
+/* ================== FERRAMENTAS GRÁTIS (sem chave) ================== */
+const WMO = {0:'céu limpo',1:'predominantemente limpo',2:'parcialmente nublado',3:'nublado',45:'neblina',48:'neblina com geada',
+  51:'garoa fraca',53:'garoa',55:'garoa forte',61:'chuva fraca',63:'chuva',65:'chuva forte',66:'chuva congelante',67:'chuva congelante forte',
+  71:'neve fraca',73:'neve',75:'neve forte',80:'pancadas de chuva fracas',81:'pancadas de chuva',82:'pancadas de chuva fortes',
+  95:'trovoadas',96:'trovoadas com granizo',99:'trovoadas fortes com granizo'};
+const TOOL_DECLS = [
+  { name:'clima', description:'Clima atual e previsão de 3 dias de uma cidade (temperatura, chuva, vento).',
+    parameters:{ type:'object', properties:{ cidade:{ type:'string', description:'Nome da cidade, ex: São Paulo' } }, required:['cidade'] } },
+  { name:'wikipedia', description:'Resumo da Wikipédia em português sobre uma pessoa, lugar, empresa, conceito ou fato histórico.',
+    parameters:{ type:'object', properties:{ termo:{ type:'string', description:'O que pesquisar' } }, required:['termo'] } },
+  { name:'cotacao', description:'Cotação atual de moedas e cripto em relação ao real, ex: USD, EUR, BTC.',
+    parameters:{ type:'object', properties:{ moedas:{ type:'string', description:'Códigos separados por vírgula, ex: USD,EUR,BTC' } }, required:['moedas'] } }
+];
+async function getJSON(url){ const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }
+const TOOLS = {
+  async clima({ cidade }){
+    const g = await getJSON(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cidade)}&count=1&language=pt`);
+    const loc = g.results?.[0]; if (!loc) return { result:{ erro:'Cidade não encontrada' } };
+    const f = await getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}` +
+      `&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m` +
+      `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code&timezone=auto&forecast_days=3`);
+    const c = f.current;
+    return { source:{ uri:'https://open-meteo.com/', title:'Open-Meteo' }, result:{
+      local:`${loc.name}, ${loc.admin1 || ''} ${loc.country || ''}`.trim(),
+      agora:{ temperatura_c:c.temperature_2m, sensacao_c:c.apparent_temperature, umidade_pct:c.relative_humidity_2m,
+              chuva_mm:c.precipitation, vento_kmh:c.wind_speed_10m, condicao:WMO[c.weather_code] || c.weather_code, horario_local:c.time },
+      previsao:f.daily.time.map((d, i) => ({ dia:d, min_c:f.daily.temperature_2m_min[i], max_c:f.daily.temperature_2m_max[i],
+              chance_chuva_pct:f.daily.precipitation_probability_max[i], condicao:WMO[f.daily.weather_code[i]] || f.daily.weather_code[i] }))
+    }};
+  },
+  async wikipedia({ termo }){
+    const s = await getJSON(`https://pt.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(termo)}&srlimit=1&format=json&origin=*`);
+    const title = s.query?.search?.[0]?.title; if (!title) return { result:{ erro:'Nada encontrado' } };
+    const p = await getJSON(`https://pt.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
+    return { source:{ uri:p.content_urls?.desktop?.page || 'https://pt.wikipedia.org', title:'Wikipédia: ' + title },
+             result:{ titulo:title, resumo:(p.extract || '').slice(0, 1800) } };
+  },
+  async cotacao({ moedas }){
+    const pares = String(moedas).toUpperCase().split(/[^A-Z]+/).filter(Boolean).slice(0, 5).map(m => m + '-BRL').join(',');
+    const d = await getJSON(`https://economia.awesomeapi.com.br/json/last/${pares}`);
+    return { source:{ uri:'https://economia.awesomeapi.com.br', title:'AwesomeAPI (cotações)' },
+             result:Object.values(d).map(x => ({ moeda:x.name, compra:x.bid, venda:x.ask, variacao_pct:x.pctChange, atualizado:x.create_date })) };
+  }
+};
 
 async function callGroq(model, recent){
   const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -296,13 +344,7 @@ async function callGroq(model, recent){
   return { text:(data.choices?.[0]?.message?.content || '').trim(), sources:[] };
 }
 
-async function callGemini(model, recent, withSearch){
-  const body = {
-    systemInstruction:{ parts:[{ text:systemPrompt() }] },
-    contents: recent.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts:[{ text:m.text }] })),
-    generationConfig:{ temperature:0.7 }
-  };
-  if (withSearch) body.tools = [{ google_search:{} }];
+async function geminiRequest(model, body){
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method:'POST',
     headers:{ 'Content-Type':'application/json', 'x-goog-api-key':cfg.key },
@@ -310,13 +352,44 @@ async function callGemini(model, recent, withSearch){
   });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new ApiError(data.error?.message || ('Erro ' + r.status), r.status);
-  const cand = data.candidates?.[0];
-  const text = (cand?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join('').trim();
-  if (!text) throw new ApiError('A IA não retornou texto (' + (cand?.finishReason || 'sem motivo') + ').', 0);
-  const sources = (cand?.groundingMetadata?.groundingChunks || [])
-    .map(c => c.web).filter(w => w && w.uri)
-    .filter((w, i, a) => a.findIndex(x => x.title === w.title) === i);
-  return { text, sources };
+  return data;
+}
+
+/* withSearch = pesquisa Google; senão usa as ferramentas grátis (clima, Wikipédia, cotação) */
+async function callGemini(model, recent, withSearch){
+  const contents = recent.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts:[{ text:m.text }] }));
+  const base = { systemInstruction:{ parts:[{ text:systemPrompt() }] }, generationConfig:{ temperature:0.7 } };
+  base.tools = withSearch ? [{ google_search:{} }] : [{ functionDeclarations:TOOL_DECLS }];
+  const sources = [];
+  for (let round = 0; round < 4; round++){
+    const data = await geminiRequest(model, { ...base, contents });
+    const cand = data.candidates?.[0];
+    const parts = cand?.content?.parts || [];
+    const calls = parts.filter(p => p.functionCall);
+    if (calls.length){
+      setStatusDetail('Consultando ' + calls.map(c => c.functionCall.name).join(', ') + '…');
+      contents.push(cand.content);   // devolve a chamada exatamente como veio
+      const responses = [];
+      for (const { functionCall:fc } of calls){
+        let out;
+        try{
+          const r = await TOOLS[fc.name](fc.args || {});
+          if (r.source) sources.push(r.source);
+          out = { result:r.result };
+        }catch(err){ out = { erro:'Falha ao consultar: ' + err.message }; }
+        responses.push({ functionResponse:{ name:fc.name, response:out } });
+      }
+      contents.push({ role:'user', parts:responses });
+      continue;
+    }
+    const text = parts.filter(p => !p.thought).map(p => p.text || '').join('').trim();
+    if (!text) throw new ApiError('A IA não retornou texto (' + (cand?.finishReason || 'sem motivo') + ').', 0);
+    for (const c of (cand?.groundingMetadata?.groundingChunks || [])){
+      if (c.web?.uri && !sources.some(s => s.title === c.web.title)) sources.push(c.web);
+    }
+    return { text, sources };
+  }
+  throw new ApiError('A IA ficou consultando ferramentas sem responder.', 0);
 }
 
 async function askAI(){
@@ -327,21 +400,22 @@ async function askAI(){
   for (const model of models){
     try{
       if (cfg.provider === 'groq') return await callGroq(model, recent);
-      try{
-        return await callGemini(model, recent, searchActive());
-      }catch(e){
-        if (searchActive() && isSearchProblem(e)){
-          // modelo não aceita pesquisa: tenta sem ela
-          console.warn('Pesquisa indisponível em', model, e.message);
-          return await callGemini(model, recent, false);
+      if (searchActive()){
+        try{ return await callGemini(model, recent, true); }
+        catch(e){
+          // Pesquisa Google recusada (cota do plano grátis ou modelo sem suporte): segue sem ela
+          if (e.status === 429 || e.status === 400){
+            console.warn('Pesquisa Google indisponível:', e.message);
+            markSearchBroken();
+          } else throw e;
         }
-        throw e;
       }
+      return await callGemini(model, recent, false);
     }catch(e){
       lastErr = e;
       console.warn('Modelo', model, 'falhou:', e.status, e.message);
-      if (isOverload(e) || e.status === 404) continue;   // tenta o próximo modelo
-      throw e;                                            // chave inválida etc.: para aqui
+      if (isOverload(e) || isGone(e)) continue;   // tenta o próximo modelo
+      throw e;                                     // chave inválida etc.: para aqui
     }
   }
   throw lastErr || new Error('Nenhum modelo respondeu.');
