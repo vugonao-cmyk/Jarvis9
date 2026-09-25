@@ -121,6 +121,18 @@ Os marcadores `{NOME}`, `{TRATAMENTO}` e `{DATA}` são trocados automaticamente.
 | Ele não fala | Confira se "Responder em voz alta" está ligado e o volume de mídia está alto. |
 | Mudei os arquivos e nada mudou | Feche e abra o app de novo (às vezes duas vezes) para ele pegar a atualização. |
 
+## Verificação automática (manutenção de graça)
+
+Este projeto tem uma checagem automática que roda sozinha, de graça, toda vez que você publica uma atualização no GitHub (usa o **GitHub Actions**, incluído gratuitamente em repositórios públicos). Ela confere, antes de qualquer coisa:
+
+- Se o código JavaScript de `index.html` e `baixar.html` não tem erro de digitação/sintaxe (um erro assim derruba o app inteiro).
+- Se o `manifest.json` é um JSON válido.
+- Se, quando `index.html` muda, a versão do cache em `sw.js` (`const CACHE = 'jarvis-vN';`) também foi atualizada — sem isso, o app instalado no celular fica "preso" numa versão antiga mesmo depois de você publicar a nova, e é exatamente esse tipo de problema que já aconteceu neste projeto.
+
+**Onde ver o resultado:** na aba **Actions** do repositório no GitHub, depois de cada envio de arquivos. Um ✅ verde significa que está tudo certo para usar; um ❌ vermelho mostra exatamente o que corrigir antes de considerar a atualização pronta.
+
+Não precisa configurar nada — os arquivos `.github/workflows/verificacao.yml` e `scripts/verificar.js` já vêm prontos; é só enviá-los para o repositório junto com os outros.
+
 ## Próxima fase: versão para computador
 
 A versão para PC (em Python) vai poder abrir programas, pesquisar na internet, tocar música e ler arquivos, coisas que o navegador sozinho não consegue fazer.

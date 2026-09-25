@@ -1,0 +1,27 @@
+name: Verificação automática do Jarvis
+
+# Roda sozinho, de graça, toda vez que algo é publicado no GitHub (aba
+# "Actions" do repositório mostra um ✅ ou ❌ depois de cada commit).
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  checar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # precisa do commit anterior para comparar a versão do cache
+
+      - name: Preparar o Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verificar sintaxe, JSON e versão do cache
+        run: node scripts/verificar.js
