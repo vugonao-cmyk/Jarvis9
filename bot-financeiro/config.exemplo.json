@@ -1,0 +1,15 @@
+{
+  "email": {
+    "servidor_smtp": "smtp.gmail.com",
+    "porta": 587,
+    "remetente": "seuemail@gmail.com",
+    "senha_app": "COLE_AQUI_A_SENHA_DE_APP_DE_16_LETRAS",
+    "destinatario": "seuemail@gmail.com"
+  },
+  "intervalo_minutos": 15,
+  "moedas": [
+    { "codigo": "USD", "nome": "Dólar", "alvo_acima": null, "alvo_abaixo": null, "variacao_pct": 2 },
+    { "codigo": "EUR", "nome": "Euro", "alvo_acima": null, "alvo_abaixo": null, "variacao_pct": 2 },
+    { "codigo": "BTC", "nome": "Bitcoin", "alvo_acima": null, "alvo_abaixo": null, "variacao_pct": 5 }
+  ]
+}

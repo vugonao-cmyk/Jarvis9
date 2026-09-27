@@ -1,0 +1,22 @@
+{
+  "nome": "Jarvis",
+  "tratamento": "senhor",
+  "provider": "gemini",
+  "key": "COLE_AQUI_SUA_CHAVE",
+  "model": "",
+  "voz": true,
+  "busca": true,
+  "space": "",
+  "prompt": "",
+
+  "confirmar_acoes_locais": true,
+  "programas_permitidos": {
+    "navegador": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "calculadora": "calc.exe"
+  },
+  "pastas_permitidas": ["~/Documents"],
+  "extensoes_permitidas": [".txt", ".md", ".csv", ".json", ".py", ".log", ".pdf", ".docx"],
+  "tamanho_max_kb": 300,
+
+  "musica_player": "auto"
+}

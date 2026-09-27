@@ -1,0 +1,6 @@
+requests
+SpeechRecognition
+pyaudio
+pyttsx3
+pypdf
+python-docx
