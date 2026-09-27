@@ -1,2 +1,6 @@
 bot-financeiro/config.json
 bot-financeiro/estado.json
+jarvis-pc/config.json
+jarvis-pc/estado/
+__pycache__/
+*.pyc
